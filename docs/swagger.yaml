@@ -1,0 +1,400 @@
+openapi: 3.0.3
+info:
+  title: Sale Order API Odoo
+  description: >
+    API de integración para la recepción de pedidos externos
+    y consulta de catálogo de productos vendibles en Odoo.
+    Todos los endpoints requieren autenticación mediante Bearer Token.
+  version: "1.0.0"
+
+servers:
+  - url: http://localhost:8069/api/v1
+    description: Entorno local de desarrollo
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Orders
+    description: Gestión de pedidos recibidos desde sistemas externos
+  - name: Products
+    description: Consulta del catálogo de productos vendibles
+
+paths:
+  /orders:
+    post:
+      tags:
+        - Orders
+      summary: Crear un pedido
+      description: >
+        Recibe un pedido desde un sistema externo  y lo
+        registra como un `integration.sale.order` pendiente de procesamiento
+        en Odoo. Valida existencia de productos, formato del cliente,
+        cantidades y precios antes de aceptar el pedido.
+      operationId: createOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+            example:
+              external_order_id: "WC-20260712-1"
+              customer:
+                is_company: true
+                vat: "900123456"
+                name: "Acme SAS"
+                email: "contact@acme.com"
+                phone: "+573001112233"
+              lines:
+                - default_code: "SA001"
+                  quantity: 2
+                  price: 150
+      responses:
+        '201':
+          description: Pedido recibido y registrado exitosamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderCreatedResponse'
+              example:
+                success: true
+                code: "ORDER_RECEIVED"
+                message: "Order received successfully."
+                state: "pending"
+        '400':
+          description: >
+            Solicitud inválida — campos requeridos ausentes o formato
+            incorrecto en `customer` / `lines`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_fields:
+                  summary: Faltan campos requeridos
+                  value:
+                    success: false
+                    code: "MISSING_FIELDS"
+                    message: "Missing required fields."
+                    fields: ["external_order_id", "customer"]
+                invalid_customer:
+                  summary: Customer no es un objeto
+                  value:
+                    success: false
+                    code: "INVALID_FORMAT_CUSTOMER"
+                    message: "Customer must be an object."
+                invalid_lines:
+                  summary: Lines no es un arreglo
+                  value:
+                    success: false
+                    code: "INVALID_LINES"
+                    message: "Lines must be an array."
+                customer_missing_fields:
+                  summary: Faltan campos del cliente
+                  value:
+                    success: false
+                    code: "CUSTOMER_MISSING_FIELDS"
+                    message: "Fields are missing for the client."
+                    fields: ["vat", "email"]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Pedido duplicado para `external_order_id`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DuplicatedOrderResponse'
+              example:
+                success: false
+                code: "DUPLICATED_ORDER"
+                message: "The order already exists"
+                external_order_id: "WC-20260712-1"
+                state: "pending"
+        '422':
+          description: >
+            El pedido es sintácticamente válido pero no puede procesarse
+            (sin líneas, productos inexistentes, cantidades o precios inválidos).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                empty_order:
+                  summary: Pedido sin líneas
+                  value:
+                    success: false
+                    code: "EMPTY_ORDER"
+                    message: "The order must contain at least one line."
+                products_not_found:
+                  summary: Productos no existen en Odoo
+                  value:
+                    success: false
+                    code: "PRODUCTS_NOT_FOUND"
+                    message: "The products do not exist in Odoo."
+                    products: ["SA099"]
+                quantity_invalid:
+                  summary: Cantidad inválida
+                  value:
+                    success: false
+                    code: "QUANTITY_INVALID"
+                    message: "Some lines contain invalid quantities."
+                    lines: ["SA001: -2"]
+                price_invalid:
+                  summary: Precio inválido
+                  value:
+                    success: false
+                    code: "PRICE_INVALID"
+                    message: "Some lines contain invalid prices."
+                    lines: ["SA001: 0"]
+
+  /orders/{external_order_id}:
+    get:
+      tags:
+        - Orders
+      summary: Consultar estado de un pedido
+      description: Retorna el estado de procesamiento de un pedido previamente recibido.
+      operationId: getOrderState
+      parameters:
+        - name: external_order_id
+          in: path
+          required: true
+          description: Identificador del pedido en el sistema externo.
+          schema:
+            type: string
+          example: "WC-20260712-1"
+      responses:
+        '200':
+          description: Pedido encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderStatusResponse'
+              example:
+                success: true
+                code: "ORDER_FOUND"
+                message: "Order INT/00001 found."
+                state: "done"
+                processed_date: "2026-07-13T22:10:00"
+                sale: "S00045"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: No existe un pedido con ese `external_order_id`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                code: "ORDER_NOT_FOUND"
+                message: "Order WC-20260712-1 not found."
+
+  /products:
+    get:
+      tags:
+        - Products
+      summary: Listar productos vendibles
+      description: >
+        Retorna el catálogo de productos con venta habilitada (`sale_ok = true`)
+        en Odoo.
+      responses:
+        '200':
+          description: Listado de productos obtenido exitosamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductListResponse'
+              example:
+                success: true
+                code: "PRODUCTS_FOUND"
+                message: "2 product(s) found."
+                products:
+                  - default_code: "SA001"
+                    name: "Silla Ejecutiva"
+                    description: "Silla reclinable de acolchado"
+                  - default_code: "SA002"
+                    name: "Escritorio Gerencial"
+                    description: "Escritorio de madera aglomerada con temrinaciones en aluminio"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Token estático de integración enviado como
+        `Authorization: Bearer <token>`.
+
+  responses:
+    Unauthorized:
+      description: Token de autenticación ausente o inválido.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            code: "UNAUTHORIZED"
+            message: "Invalid apikey"
+
+  schemas:
+    Customer:
+      type: object
+      required: [is_company, vat, name, email, phone]
+      properties:
+        is_company:
+          type: boolean
+          example: true
+        vat:
+          type: string
+          example: "900123456"
+        name:
+          type: string
+          example: "Acme SAS"
+        email:
+          type: string
+          format: email
+          example: "contact@acme.com"
+        phone:
+          type: string
+          example: "+573001112233"
+
+    OrderLine:
+      type: object
+      required: [default_code, quantity, price]
+      properties:
+        default_code:
+          type: string
+          description: Código del producto (`default_code`) en Odoo.
+          example: "SA001"
+        quantity:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          example: 2
+        price:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          example: 150
+
+    CreateOrderRequest:
+      type: object
+      required: [external_order_id, customer, lines]
+      properties:
+        external_order_id:
+          type: string
+          description: Identificador único del pedido en el sistema de origen.
+          example: "WC-20260712-1"
+        customer:
+          $ref: '#/components/schemas/Customer'
+        lines:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/OrderLine'
+
+    OrderCreatedResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        code:
+          type: string
+          example: "ORDER_RECEIVED"
+        message:
+          type: string
+          example: "Order received successfully."
+        state:
+          type: string
+          example: "pending"
+
+    DuplicatedOrderResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        code:
+          type: string
+          example: "DUPLICATED_ORDER"
+        message:
+          type: string
+          example: "The order already exists"
+        external_order_id:
+          type: string
+          example: "WC-20260712-1"
+        state:
+          type: string
+          example: "pending"
+
+    OrderStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        code:
+          type: string
+          example: "ORDER_FOUND"
+        message:
+          type: string
+          example: "Order INT/00001 found."
+        state:
+          type: string
+          example: "done"
+        processed_date:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2026-07-13T22:10:00"
+        sale:
+          type: string
+          example: "S00045"
+
+    Product:
+      type: object
+      properties:
+        default_code:
+          type: string
+          example: "SA001"
+        name:
+          type: string
+          example: "Silla Ejecutiva"
+        description:
+          type: string
+          example: "Silla reclinable y acolchada"
+
+    ProductListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        code:
+          type: string
+          example: "PRODUCTS_FOUND"
+        message:
+          type: string
+          example: "2 product(s) found."
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        code:
+          type: string
+          example: "ERROR_CODE"
+        message:
+          type: string
+          example: "Descriptive error message."
