@@ -4,9 +4,6 @@ from odoo import http
 from odoo.http import request
 
 
-
-API_KEY = '46369552636869cbb4a9a99ceeeef1e31822c80b'
-
 class OrderApi(http.Controller):
 
     @http.route('/api/v1/orders', auth='bearer', methods=['POST'], type='http', csrf=False, cors='*')
