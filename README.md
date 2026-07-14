@@ -18,12 +18,40 @@ Este proyecto implementa un módulo Odoo (`sale_extended`) que integra órdenes 
 ```
 odoo-19/
 ├── docker/
-│   ├── compose.yaml # Configuración de servicios Docker
-│   └── .env                  # Variables de entorno
+|   ├── config/
+|   |   └── odoo.conf   # Configuración de servicio Odoo
+|   |
+│   ├── compose.yaml      # Configuración de servicios Docker
+│   └── .env              # Variables de entorno
+|
+├── docs/                   
+|   ├── diagrams/        # Diagrama Logico y E/R
+|   |   ├── Diagram E_R - Sale API Odoo.png
+|   |   └── Diagram Logic - Sale API Odoo.png
+|   |
+|   ├── sql_queries.md  # Consultas SQL Modelo Sale API
+|   └── swagger.yaml    # Doc OpenAPI
+|   
 ├── extended/
 │   └── sale_extended/
+|       ├── controllers/
+|       |   ├── __init__.py
+|       |   ├── order_api.py    # API para validar y crear Integración
+|       |   └── product_api   # API para obtener productos vendibles
+|       |
+|       ├── data/
+|       |   ├── integration_cron.xml # Acción Programada new partner/sale
+|       |   └── ir.sequence.xml # Secuencia Model Integración
+|       |
 │       ├── models/
-│       │   └── integration_order.py #Modelo integración
+|       |   ├── __init__.py
+│       │   └── integration_order.py # Modelo integración
+|       |
+|       ├── security/
+|       |   └── ir.model.access.csv  #  Permisos Model Integración
+|       |
+|       ├── views/
+|       |   └── integration_sale_order_views.xml  # Action, Menu, View
 │       ├── __init__.py
 │       └── __manifest__.py
 |
