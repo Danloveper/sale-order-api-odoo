@@ -1,0 +1,53 @@
+services:
+  web:
+    image: odoo:19.0
+    command: -d odoo
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${ODOO_PORT}:8069"
+    volumes:
+      - odoo-web-data:/var/lib/odoo
+      - ./config:/etc/odoo
+      - ../extended:/mnt/extra-addons
+    environment:
+      GEVENT_SUPPORT: True
+    networks:
+      - backend
+      - api_document
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - odoo-db-data:/var/lib/postgresql/data/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend
+  swagger:
+    image: swaggerapi/swagger-ui
+    ports:
+      - "${SWAGGER_PORT}:8080"
+    environment:
+      SWAGGER_JSON: /docs/swagger.yaml
+    volumes:
+      - ../docs:/docs
+    networks:
+      - api_document
+volumes:
+  odoo-web-data:
+  odoo-db-data:
+
+networks:
+  backend:
+    driver: bridge
+  api_document:
+    driver: bridge
